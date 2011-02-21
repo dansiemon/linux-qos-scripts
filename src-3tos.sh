@@ -1,22 +1,46 @@
 #!/bin/bash
+##
+# Dan Siemon <dan@coverfire.com>
+#
+# This script attempts to create per host fairness on the network
+# and within each host three traffic classes based on the TOS bits.
+#
+# Other than the variables in the top secton of this script you'll
+# also want to remove 'linklayer atm' if you aren't using ATM
+# (most DSL types use ATM).
+##
 
-DEVICE="ppp0"
-NUM_HOST_BUCKETS=4
-NUM_FLOW_BUCKETS=64
+DEVICE="tunl1"
+
+NUM_HOST_BUCKETS=8
+NUM_FLOW_BUCKETS=32
 
 # All rates are kbit/sec.
 # RATE should be set to just under your upload link rate.
-RATE="620"
-# TODO - take RATE /3 to get the below ??
+RATE="700"
 # Below three rates should add up to RATE.
-RATE_1="220"
-RATE_2="220"
-RATE_3="180"
+# Priority of these classes is 1 (Higest) -> 3 (Lowest)
+RATE_1="180"
+RATE_2="320"
+RATE_3="200"
 
-FIFO_LEN=4
-PERTURB=15
-OVERHEAD=40 # PPPoE
+# Size the queues for sane latency.
+# Ex: 3 * 1436 = 4308 / (700000 / 8) = 49ms
+FIFO_LEN=3
+
+# How often to perturb the hashes.
+PERTURB=60
+#PERTURB=3000
+
+# PPPoE overhead is 40 bytes (http://www.adsl-optimizer.dk/thesis/)
+# 20 bytes for IPIP tunnel
+OVERHEAD=60
+
+# Set R2Q (HTB knob) low because of the low bitrates.
 R2Q=2
+
+# The MTU of the underlying interface.
+MTU="1436"
 
 ###############
 ###############
@@ -34,12 +58,12 @@ function drr {
 
 	# Create NUM_FLOW_BUCKETS classes.
 	for J in `seq ${NUM_FLOW_BUCKETS}`; do
-		tc class add dev ${DEVICE} parent ${HANDLE} classid ${HANDLE}:`dec_to_hex ${J}` drr
+		tc class add dev ${DEVICE} parent ${HANDLE} classid ${HANDLE}:`dec_to_hex ${J}` drr quantum ${MTU}
 		tc qdisc add dev ${DEVICE} parent ${HANDLE}:`dec_to_hex ${J}` pfifo limit ${FIFO_LEN}
 	done
 
 	# Add a filter to direct the packets.
-	tc filter add dev ${DEVICE} prio 1 protocol ip parent ${HANDLE}: handle 1 flow hash keys src,dst,proto,proto-src,proto-dst divisor ${NUM_FLOW_BUCKETS} perturb ${PERTURB} baseclass ${HANDLE}:1
+	tc filter add dev ${DEVICE} prio 1 protocol ip parent ${HANDLE}: handle 1 flow hash keys nfct-src,nfct-dst,proto,nfct-proto-src,nfct-proto-dst divisor ${NUM_FLOW_BUCKETS} perturb ${PERTURB} baseclass ${HANDLE}:1
 }
 
 function sfq {
@@ -59,7 +83,6 @@ echo "DIV_RATE:" ${DIV_RATE}
 echo "DIV_RATE_1:" ${DIV_RATE_1}
 echo "DIV_RATE_2:" ${DIV_RATE_2}
 echo "DIV_RATE_3:" ${DIV_RATE_3}
-
 
 # Delete the existing qdiscs etc if they exist.
 tc qdisc del dev ${DEVICE} root
@@ -126,4 +149,4 @@ done
 tc filter add dev ${DEVICE} prio 1 protocol ip parent 1:0 u32 match u32 0 0 flowid 1:1
 
 # From the top level class hash into the host classes.
-tc filter add dev ${DEVICE} prio 1 protocol ip parent 1:1 handle 1 flow hash keys src divisor ${NUM_HOST_BUCKETS} perturb ${PERTURB} baseclass 1:10
+tc filter add dev ${DEVICE} prio 1 protocol ip parent 1:1 handle 1 flow hash keys nfct-src divisor ${NUM_HOST_BUCKETS} perturb ${PERTURB} baseclass 1:10

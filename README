@@ -1,1 +1,3 @@
-Linux QoS scripts.
+Linux QoS scripts which I used on my home Internet connection.
+
+You'll need to change some of the variables to use them.
