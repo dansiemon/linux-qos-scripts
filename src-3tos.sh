@@ -20,6 +20,12 @@
 # Yes, the class and QDisc naming is confusing and there are probably bugs
 # if you set the NUM_HOST_BUCKETS or NUM_FLOW_BUCKETS too high.
 #
+# The traffic is directed into the High, Normal and Low classes within each host bucket
+# based on the value of the TOS bits (see the comment below).The key thing to note is
+# that a malicious user who sets all of their traffic to high priority does not cause
+# any problems for other users, only themselves. This additional restriction makes TOS
+# based classification usable.
+#
 ##
 # Config
 # Other than the variables in the top secton of this script you'll
