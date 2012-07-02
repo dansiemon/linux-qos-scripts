@@ -14,7 +14,7 @@
 #		 High  Normal Low [Priority classes are named 1:(HOST_BUCKET * 100 + 1)]
 #			|
 #	Flow Bucket 1  .. NUM_FLOW_BUCKETS [Flow QDiscs are named (HOST_BUCKET * 100 + 1 + 1):0]
-#	
+#
 # The 0->NUM_FLOW_BUCKETS exist under every high, normal and low class.
 #
 # Yes, the class and QDisc naming is confusing and there are probably bugs
@@ -24,7 +24,8 @@
 # Config
 ####
 
-TC="/usr/local/sbin/tc"
+#TC="/usr/local/sbin/tc"
+TC=`which tc`
 
 DEVICE="ppp0"
 
@@ -91,10 +92,10 @@ MTU="1456"
 # For 5-tuple (flow) fairness use
 #FLOW_KEYS="src,dst,proto,proto-src,proto-dst"
 # For 5-tuple (flow) fairness with NAT use
-#FLOW_KEYS="nfct-src,nfct-dst,nfct-proto,nfct-proto-src,nfct-proto-dst"
+FLOW_KEYS="nfct-src,nfct-dst,nfct-proto,nfct-proto-src,nfct-proto-dst"
 # For 5-tuple (flow) fairness with IPIP IPIPv6, IPv6IP, IPv6IPv6 tunnels (no NAT) use
 # This requires my recent patch to the flow classifier.
-FLOW_KEYS="src,dst,proto,proto-src,proto-dst,tunnel-src,tunnel-dst,proto,tunnel-proto-src,tunnel-proto-dst"
+#FLOW_KEYS="src,dst,proto,proto-src,proto-dst,tunnel-src,tunnel-dst,proto,tunnel-proto-src,tunnel-proto-dst"
 
 ####
 # The keys that are used to identify a host's traffic.
@@ -102,9 +103,9 @@ FLOW_KEYS="src,dst,proto,proto-src,proto-dst,tunnel-src,tunnel-dst,proto,tunnel-
 # No NAT
 #HOST_KEYS="src"
 # With NAT
-#HOST_KEYS="nfct-src"
+HOST_KEYS="nfct-src"
 # With IPIP IPIPv6, IPv6IP, IPv6IPv6 tunnels (no NAT)
-HOST_KEYS="src,tunnel-src"
+#HOST_KEYS="src,tunnel-src"
 
 # Set R2Q (HTB knob) low because of the low bitrates.
 # If your rates aren't low you might not need this. Remove it from the
@@ -208,7 +209,7 @@ for HOST_NUM in `seq ${NUM_HOST_BUCKETS}`; do
 	tc class add dev ${DEVICE} parent 1:1 classid 1:${QID} htb rate ${DIV_RATE}kbit ceil ${RATE}kbit prio 0 linklayer ${LINKLAYER} overhead ${OVERHEAD}
 
 	###
-	# Within each host bucket add three classes, high, normal and low priority.
+	# Within each host bucket add three sub-classes, high, normal and low priority.
 	# Priority classes are named 1:[HOST_BUCKET * 100 + 1]
 	###
 	QID_1=`expr $QID '*' 100 + 1`
@@ -255,7 +256,7 @@ for HOST_NUM in `seq ${NUM_HOST_BUCKETS}`; do
 	# R= Reliability bit
 	#
 	# OpenSSH terminal sets D.
-	# OpenSSH SCP sets T.
+	# OpenSSH SCP/SFTP sets T.
 	# It's easy to configure the Transmission Bittorrent client to set T (settings.json).
 	# For home VoIP devices use an Iptables rule to set all of their traffic to have D.
 	#
@@ -267,13 +268,13 @@ for HOST_NUM in `seq ${NUM_HOST_BUCKETS}`; do
 	# D bit set.
 	tc filter add dev ${DEVICE} parent 1:${QID} protocol ip prio 10 u32 match ip tos 0x10 0x1c flowid 1:${QID_1}
 
-	# T bit set.
-	tc filter add dev ${DEVICE} parent 1:${QID} protocol ip prio 10 u32 match ip tos 0x08 0x1c flowid 1:${QID_3}
-
 	# Diffserv expedited forwarding. Put this in the high priority class.
 	# Some VoIP clients set this (ie Ekiga).
 	# DSCP=b8
 	tc filter add dev ${DEVICE} parent 1:${QID} protocol ip prio 10 u32 match ip tos 0xb8 0xfc flowid 1:${QID_1}
+
+	# T bit set.
+	tc filter add dev ${DEVICE} parent 1:${QID} protocol ip prio 10 u32 match ip tos 0x08 0x1c flowid 1:${QID_3}
 
 	# Everything else into default.
 	tc filter add dev ${DEVICE} parent 1:${QID} protocol ip prio 10 u32 match ip tos 0x00 0x00 flowid 1:${QID_2}
