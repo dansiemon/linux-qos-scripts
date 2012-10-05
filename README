@@ -1,3 +1,6 @@
 Linux QoS scripts which I used on my home Internet connection.
 
+src-3tos.sh is the recommended script. It creates per host fairness
+with 3 priority classes for each host.
+
 You'll need to change some of the variables to use them.
