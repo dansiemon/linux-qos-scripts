@@ -3,8 +3,15 @@
 # Dan Siemon <dan@coverfire.com>
 # http://www.coverfire.com
 #
-# This script attempts to create per host fairness on the network
-# and for each host three priority classes. The hierarchy looks like:
+# This script attempts to create per-host fairness on the network
+# and for each host three priority classes. Per-host fairness is created
+# by having NUM_HOST_BUCKETS classes and hashing hosts across them. Set this
+# value to something sane for your network.
+#
+# The hierarchy with 8 host buckets looks like:
+# http://git.coverfire.com/?p=linux-qos-scripts.git;a=blob;f=src-3tos_8hosts.png;hb=HEAD
+#
+# Or if you prefer ASCII:
 #
 #                           Interface
 #				|
