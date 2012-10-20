@@ -179,7 +179,7 @@ function DEBUG()
 	[ "$_DEBUG" == "on" ] && "$@"
 }
 
-# Debug function for print the tc command lines.
+# Debug function for printing the tc command lines.
 function CDEBUG()
 {
 	[ "$_CDEBUG" == "on" ] && "$@"
@@ -201,7 +201,7 @@ function hex_replace {
 }
 
 ###
-# Function to wrap the tc command and convert the qdisc and class
+# Function to wrap the tc command and convert the QDisc and class
 # identifiers to hex before calling tc.
 ###
 function tc_h {
