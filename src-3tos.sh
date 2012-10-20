@@ -212,6 +212,7 @@ function tc_h {
 
 	while [ "$1" != "" ]; do
 		case "$1" in
+                        # The tc parameters which take major:minor as an argument
 			"classid" | "flowid" | "parent" | "baseclass" | "handle")
 				hex_replace $2
 
@@ -226,6 +227,8 @@ function tc_h {
 	done
 
 	CDEBUG printf "Command after: ${OUTPUT}\n"
+
+        # Run the command.
 	${OUTPUT}
 }
 
