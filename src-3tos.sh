@@ -44,7 +44,7 @@ DEVICE="ppp0"
 # The number of host buckets. All hosts are hashed into one of these buckets
 # so you'll want this to approximate (but probably be lower) the number of hosts
 # in your network.
-NUM_HOST_BUCKETS=8
+NUM_HOST_BUCKETS=16
 
 if [ ${NUM_HOST_BUCKETS} -gt 150 ] ; then
 	# Safety valve. Script won't work after ~160 today. This is because
@@ -135,10 +135,18 @@ HOST_KEYS="nfct-src"
 #R2Q=2
 
 ####
-# Choosing the type of queue for each class
+# Choose the type of queue for each of the three per host priority classes
+# Options:
+#       drr
+#       sfq
+#       fq_codel
+#       sfb
+#       pfifo_head_drop
+#       pfifo
 ####
-# For each of the traffic classes you can choose which QDisc to use by uncommenting
-# the appropriate function call below.
+HIGH_PRIORITY_QDISC_TYPE="fq_codel"
+NORMAL_PRIORITY_QDISC_TYPE="fq_codel"
+LOW_PRIORITY_QDISC_TYPE="fq_codel"
 
 ###########################################
 ###########################################
@@ -301,6 +309,36 @@ function pfifo {
 	tc_h qdisc add dev ${DEVICE} parent ${PARENT} handle ${HANDLE} pfifo limit ${FIFO_LEN}
 }
 
+function priority_class_qdisc {
+	PARENT=$2
+	HANDLE=$3
+
+        case "$1" in
+                "drr" )
+                        drr ${PARENT} ${HANDLE}
+                        ;;
+                "sfq" )
+                        sfq ${PARENT} ${HANDLE}
+                        ;;
+                "fq_codel" )
+                        fq_codel ${PARENT} ${HANDLE}
+                        ;;
+                "sfb" )
+                        sfb ${PARENT} ${HANDLE}
+                        ;;
+                "pfifo_head_drop" )
+                        pfifo_head_drop ${PARENT} ${HANDLE}
+                        ;;
+                "pfifo" )
+                        pfifo ${PARENT} ${HANDLE}
+                        ;;
+                * )
+                        echo "Error: Unknown leaf QDisc type"
+                        exit
+                        ;;
+        esac
+}
+
 ######################
 # The real work starts here.
 ######################
@@ -353,13 +391,8 @@ for HOST_NUM in `seq ${NUM_HOST_BUCKETS}`; do
 	DEBUG printf "\t\tHigh: %i\n" ${QID_1}
 	tc_h class add dev ${DEVICE} parent 1:${QID} classid 1:${QID_1} htb rate ${DIV_RATE_1}kbit ceil ${RATE}kbit ${QUANTUM} prio 0 ${LINKLAYER} ${OVERHEAD}
 
-	# Choose one of the below QDiscs for this class.
-	#drr 1:${QID_1} ${QID_1}
-	#sfq 1:${QID_1} ${QID_1}
-	fq_codel 1:${QID_1} ${QID_1}
-	#sfb 1:${QID_1} ${QID_1}
-	#pfifo_head_drop 1:${QID_1} ${QID_1}
-	#pfifo 1:${QID_1} ${QID_1}
+	# Create the leaf QDisc for this priority class.
+        priority_class_qdisc ${HIGH_PRIORITY_QDISC_TYPE} 1:${QID_1} ${QID_1}
 
 	###
 	# Normal priority class
@@ -368,13 +401,8 @@ for HOST_NUM in `seq ${NUM_HOST_BUCKETS}`; do
 	DEBUG printf "\t\tNormal: %i\n" ${QID_2}
 	tc_h class add dev ${DEVICE} parent 1:${QID} classid 1:${QID_2} htb rate ${DIV_RATE_2}kbit ceil ${RATE}kbit ${QUANTUM} prio 1 ${LINKLAYER} ${OVERHEAD}
 
-	# Choose one of the below QDiscs for this class.
-	#drr 1:${QID_2} ${QID_2}
-	#sfq 1:${QID_2} ${QID_2}
-	fq_codel 1:${QID_2} ${QID_2}
-	#sfb 1:${QID_2} ${QID_2}
-	#pfifo_head_drop 1:${QID_2} ${QID_2}
-	#pfifo 1:${QID_2} ${QID_2}
+	# Create the leaf QDisc for this priority class.
+        priority_class_qdisc ${NORMAL_PRIORITY_QDISC_TYPE} 1:${QID_2} ${QID_2}
 
 	###
 	# Low priority class
@@ -383,13 +411,8 @@ for HOST_NUM in `seq ${NUM_HOST_BUCKETS}`; do
 	DEBUG printf "\t\tLow: %i\n" ${QID_3}
 	tc_h class add dev ${DEVICE} parent 1:${QID} classid 1:${QID_3} htb rate ${DIV_RATE_3}kbit ceil ${RATE}kbit ${QUANTUM} prio 2 ${LINKLAYER} ${OVERHEAD}
 
-	# Choose one of the below QDiscs for this class.
-	#drr 1:${QID_3} ${QID_3}
-	#sfq 1:${QID_3} ${QID_3}
-	fq_codel 1:${QID_3} ${QID_3}
-	#sfb 1:${QID_3} ${QID_3}
-	#pfifo_head_drop 1:${QID_3} ${QID_3}
-	#pfifo 1:${QID_3} ${QID_3}
+	# Create the leaf QDisc for this priority class.
+        priority_class_qdisc ${LOW_PRIORITY_QDISC_TYPE} 1:${QID_3} ${QID_3}
 
 
 	######
