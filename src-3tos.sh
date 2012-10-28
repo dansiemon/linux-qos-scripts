@@ -9,29 +9,26 @@
 # value to something sane for your network.
 #
 # The hierarchy with 8 host buckets looks like:
-# http://git.coverfire.com/?p=linux-qos-scripts.git;a=blob;f=src-3tos_8hosts.png;hb=HEAD
 #
-# Or if you prefer ASCII:
+# ASCII:
 #
 #                           Interface
 #				|
 #			     HTB 1:1
 #			     /     \
 #		    Host Bucket 1  .. NUM_HOST_BUCKETS [Classes 1:10-1:(10+NUM_HOST_BUCKETS)]
+#                        |
+#                       DRR
 #		    /    |    \
-#		 High  Normal Low [Priority classes are named 1:(HOST_BUCKET * 16 + 1)]
+#		 High Normal Low [DRR: With three classes]
 #			|
-#	Flow Bucket 1  .. NUM_FLOW_BUCKETS [Flow QDiscs are named (HOST_BUCKET * 16 + 1 + 1):0]
+#	            Leaf QDisc [Choose the type of the leaf QDisc below]
 #
-# The 0->NUM_FLOW_BUCKETS exist under every high, normal and low class. SFQ, SFB and FQ_CODEL
-# have embedded classes per flow and do not use NUM_FLOW_BUCKETS.
+# The tree is created and the QDiscs are named in depth first order.
 #
-# Yes, the class and QDisc naming is confusing and there are probably bugs
-# if you set the NUM_HOST_BUCKETS or NUM_FLOW_BUCKETS too high.
-#
-####
+######################
 # Config
-####
+######################
 
 #TC="/usr/local/sbin/tc"
 TC=`which tc`
@@ -46,15 +43,6 @@ DEVICE="ppp0"
 # in your network.
 NUM_HOST_BUCKETS=16
 
-if [ ${NUM_HOST_BUCKETS} -gt 150 ] ; then
-	# Safety valve. Script won't work after ~160 today. This is because
-	# the parent class for each of the per host classes is encoded in the
-	# class minor number.  This makes debugging easier but wastes the minor
-	# number space.
-	echo "Sorry, can't do more than 150 hosts right now."
-	exit
-fi
-
 # The number of flow buckets within each high, normal and low class.
 # If SFQ, SFB or FQ_CODEL are used this value is not used as these QDiscs
 # have many embedded queues.
@@ -65,12 +53,7 @@ NUM_FLOW_BUCKETS=32
 ####
 # All rates are kbit/sec.
 # RATE should be set to just under your link rate.
-RATE="6400"
-# Below three rates should add up to RATE.
-# Priority of these classes is 1 (Higest) -> 3 (Lowest)
-RATE_1="2000"
-RATE_2="2400"
-RATE_3="2000"
+RATE="6200"
 
 ####
 # Queue size
@@ -136,7 +119,7 @@ HOST_KEYS="nfct-src"
 
 ####
 # Choose the type of queue for each of the three per host priority classes
-# Options:
+# Support options:
 #       drr
 #       sfq
 #       fq_codel
@@ -179,7 +162,7 @@ if [ "${QUANTUM}" != "" ]; then
 fi
 
 ######################
-# Util functions
+# Utility functions
 ######################
 
 function DEBUG()
@@ -238,6 +221,16 @@ function tc_h {
 
         # Run the command.
 	${OUTPUT}
+}
+
+function get_next_free_major {
+        if [ "${FREE_MAJOR}" == "" ]; then
+                FREE_MAJOR=2 # Assumes 1 is used.
+
+                return
+        fi
+
+        FREE_MAJOR=$(expr ${FREE_MAJOR} + 1)
 }
 
 ######################
@@ -343,19 +336,13 @@ function priority_class_qdisc {
 # The real work starts here.
 ######################
 
-# Calculate the divided rate values for use later.
+# Calculate the divided rate value for use later.
 DIV_RATE=`expr ${RATE} / ${NUM_HOST_BUCKETS}`
-DIV_RATE_1=`expr ${RATE_1} / ${NUM_HOST_BUCKETS}`
-DIV_RATE_2=`expr ${RATE_2} / ${NUM_HOST_BUCKETS}`
-DIV_RATE_3=`expr ${RATE_3} / ${NUM_HOST_BUCKETS}`
 
 echo "Number of host buckets: ${NUM_HOST_BUCKETS}"
 echo "Rate per host (DIV_RATE):" ${DIV_RATE}
-echo "High priority rate per host (DIV_RATE_1):" ${DIV_RATE_1}
-echo "Normal priority rate per host (DIV_RATE_2):" ${DIV_RATE_2}
-echo "Low priority rate per host (DIV_RATE_3):" ${DIV_RATE_3}
 
-# Delete any existing qdiscs if they exist.
+# Delete any existing QDiscs if they exist.
 tc_h qdisc del dev ${DEVICE} root
 
 # HTB QDisc at the root. Default all traffic into the prio qdisc.
@@ -366,7 +353,8 @@ tc_h class add dev ${DEVICE} parent 1: classid 1:1 htb rate ${RATE}kbit ${QUANTU
 
 ######
 # Create NUM_HOST_BUCKETS classes within the top-level class.
-# Within each of these create three priority classes.
+# Within each of these create a DRR with three classes which implement the three priorities.
+# Within each priority class create the configured leaf QDisc.
 ######
 for HOST_NUM in `seq ${NUM_HOST_BUCKETS}`; do
 	DEBUG printf "Create host class: %i\n" $HOST_NUM
@@ -375,48 +363,55 @@ for HOST_NUM in `seq ${NUM_HOST_BUCKETS}`; do
 	DEBUG printf "\tQID: %i\n" ${QID}
 	tc_h class add dev ${DEVICE} parent 1:1 classid 1:${QID} htb rate ${DIV_RATE}kbit ceil ${RATE}kbit ${QUANTUM} prio 0 ${LINKLAYER} ${OVERHEAD}
 
+
 	######
-	# Within each host bucket add three sub-classes, high, normal and low priority.
-	# Priority classes are named 1:[HOST_BUCKET * 16 + 1]
-	# Why 16? Because tc shows major:minor in hex so this makes it easy to match
-	# the three sub class to the parent host bucket.
-	#
-	# Within each priority class uncomment one of the QDisc types.
+        # Within each host class create a DRR QDisc within which we'll create the
+        # high, normal and low priority classes.
 	######
+        get_next_free_major
+        SUB_MAJOR=${FREE_MAJOR}
+        tc_h qdisc add dev ${DEVICE} parent 1:${QID} handle ${SUB_MAJOR}: drr
+
+        # Filter from the host class to the DRR within it.
+        tc_h filter add dev ${DEVICE} prio 2 protocol ip parent 1:${QID} u32 match ip dst 0.0.0.0/0 flowid ${SUB_MAJOR}:0
+
 
 	###
 	# High priority class
 	###
-	QID_1=`expr $QID '*' 16 + 0`
 	DEBUG printf "\t\tHigh: %i\n" ${QID_1}
-	tc_h class add dev ${DEVICE} parent 1:${QID} classid 1:${QID_1} htb rate ${DIV_RATE_1}kbit ceil ${RATE}kbit ${QUANTUM} prio 0 ${LINKLAYER} ${OVERHEAD}
+        tc_h class add dev ${DEVICE} parent ${SUB_MAJOR}: classid ${SUB_MAJOR}:1 drr ${QUANTUM}
 
 	# Create the leaf QDisc for this priority class.
-        priority_class_qdisc ${HIGH_PRIORITY_QDISC_TYPE} 1:${QID_1} ${QID_1}
+        get_next_free_major
+        SUB_PRIO_MAJOR=${FREE_MAJOR}
+        priority_class_qdisc ${HIGH_PRIORITY_QDISC_TYPE} ${SUB_MAJOR}:1 ${SUB_PRIO_MAJOR}
 
 	###
 	# Normal priority class
 	###
-	QID_2=`expr $QID '*' 16 + 1`
 	DEBUG printf "\t\tNormal: %i\n" ${QID_2}
-	tc_h class add dev ${DEVICE} parent 1:${QID} classid 1:${QID_2} htb rate ${DIV_RATE_2}kbit ceil ${RATE}kbit ${QUANTUM} prio 1 ${LINKLAYER} ${OVERHEAD}
+        tc_h class add dev ${DEVICE} parent ${SUB_MAJOR}: classid ${SUB_MAJOR}:2 drr ${QUANTUM}
 
 	# Create the leaf QDisc for this priority class.
-        priority_class_qdisc ${NORMAL_PRIORITY_QDISC_TYPE} 1:${QID_2} ${QID_2}
+        get_next_free_major
+        SUB_PRIO_MAJOR=${FREE_MAJOR}
+        priority_class_qdisc ${NORMAL_PRIORITY_QDISC_TYPE} ${SUB_MAJOR}:2 ${SUB_PRIO_MAJOR}
 
 	###
 	# Low priority class
 	###
-	QID_3=`expr $QID '*' 16 + 2`
 	DEBUG printf "\t\tLow: %i\n" ${QID_3}
-	tc_h class add dev ${DEVICE} parent 1:${QID} classid 1:${QID_3} htb rate ${DIV_RATE_3}kbit ceil ${RATE}kbit ${QUANTUM} prio 2 ${LINKLAYER} ${OVERHEAD}
+        tc_h class add dev ${DEVICE} parent ${SUB_MAJOR}: classid ${SUB_MAJOR}:3 drr ${QUANTUM}
 
 	# Create the leaf QDisc for this priority class.
-        priority_class_qdisc ${LOW_PRIORITY_QDISC_TYPE} 1:${QID_3} ${QID_3}
+        get_next_free_major
+        SUB_PRIO_MAJOR=${FREE_MAJOR}
+        priority_class_qdisc ${LOW_PRIORITY_QDISC_TYPE} ${SUB_MAJOR}:3 ${SUB_PRIO_MAJOR}
 
 
 	######
-	# Add filters to classify based on the TOS bits.
+	# Add filters to classify based on the TOS bits into the high, normal and low priority classes.
 	# Only mask against the three (used) TOS bits. The final two bits are used for ECN.
 	# TOS field is XXXDTRXX.
 	# X= Not part of the TOS field.
@@ -427,7 +422,7 @@ for HOST_NUM in `seq ${NUM_HOST_BUCKETS}`; do
 	# OpenSSH terminal sets D.
 	# OpenSSH SCP/SFTP sets T.
 	# It's easy to configure the Transmission Bittorrent client to set T (settings.json).
-	# For home VoIP devices use an Iptables rule to set all of their traffic to have D.
+	# For home VoIP devices I use an iptables rule to set all of their traffic to have D.
 	#
 	# The thinking behind the below rules is to use D as an indication of delay sensitive
 	# and T as an indication of background (big transfer). All other combinations are put into
@@ -436,22 +431,22 @@ for HOST_NUM in `seq ${NUM_HOST_BUCKETS}`; do
 	DEBUG printf "\t\tCreating filters\n"
 
 	# D bit set.
-	tc_h filter add dev ${DEVICE} parent 1:${QID} protocol ip prio 10 u32 match ip tos 0x10 0x1c flowid 1:${QID_1}
+	tc_h filter add dev ${DEVICE} parent ${SUB_MAJOR}: protocol ip prio 10 u32 match ip tos 0x10 0x1c flowid ${SUB_MAJOR}:1
 
 	# Diffserv expedited forwarding. Put this in the high priority class.
 	# Some VoIP clients set this (ie Ekiga).
 	# DSCP=b8
-	tc_h filter add dev ${DEVICE} parent 1:${QID} protocol ip prio 10 u32 match ip tos 0xb8 0xfc flowid 1:${QID_1}
+	tc_h filter add dev ${DEVICE} parent ${SUB_MAJOR}: protocol ip prio 10 u32 match ip tos 0xb8 0xfc flowid ${SUB_MAJOR}:1
 
 	# T bit set.
-	tc_h filter add dev ${DEVICE} parent 1:${QID} protocol ip prio 10 u32 match ip tos 0x08 0x1c flowid 1:${QID_3}
+	tc_h filter add dev ${DEVICE} parent ${SUB_MAJOR}: protocol ip prio 10 u32 match ip tos 0x08 0x1c flowid ${SUB_MAJOR}:3
 
 	# Everything else into default.
-	tc_h filter add dev ${DEVICE} parent 1:${QID} protocol ip prio 10 u32 match ip tos 0x00 0x00 flowid 1:${QID_2}
+	tc_h filter add dev ${DEVICE} parent ${SUB_MAJOR}: protocol ip prio 10 u32 match ip tos 0x00 0x00 flowid ${SUB_MAJOR}:2
 done
 
 # Send everything that hits the top level QDisc to the top class.
-tc_h filter add dev ${DEVICE} prio 1 protocol ip parent 1:0 u32 match u32 0 0 flowid 1:1
+tc_h filter add dev ${DEVICE} prio 1 protocol ip parent 1:0 u32 match ip dst 0.0.0.0/0 flowid 1:1
 
 # From the top level class hash into the host classes.
 tc_h filter add dev ${DEVICE} prio 1 protocol ip parent 1:1 handle 1 flow hash keys ${HOST_KEYS} divisor ${NUM_HOST_BUCKETS} ${PERTURB} baseclass 1:10
