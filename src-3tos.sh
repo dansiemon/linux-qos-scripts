@@ -3,12 +3,16 @@
 # Dan Siemon <dan@coverfire.com>
 # http://www.coverfire.com
 #
+# This script is designed to be used on router placed before a bottleneck link.
+# Set the rate to be slightly below the bottleneck rate so that the router
+# owns the queue. That is, there is no queueing in the DSL or cable device.
+#
 # This script attempts to create per-host fairness on the network
 # and for each host three priority classes. Per-host fairness is created
-# by having NUM_HOST_BUCKETS classes and hashing hosts across them. Set this
-# value to something sane for your network.
+# by having NUM_HOST_BUCKETS classes and hashing hosts across them. Set
+# NUM_HOST_BUCKETS to something sane for your network.
 #
-# The hierarchy with 8 host buckets looks like:
+# The hierarchy looks like:
 #
 # ASCII:
 #
@@ -53,7 +57,7 @@ NUM_FLOW_BUCKETS=32
 ####
 # All rates are kbit/sec.
 # RATE should be set to just under your link rate.
-RATE="6200"
+RATE="6500"
 
 ####
 # Queue size
