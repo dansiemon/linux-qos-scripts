@@ -14,6 +14,9 @@
 # by having NUM_HOST_BUCKETS classes and hashing hosts across them. Set
 # NUM_HOST_BUCKETS to something sane for your network.
 #
+# Experimental results can be found at:
+# https://www.coverfire.com/archives/2013/01/01/improving-my-home-internet-performance/
+#
 # The hierarchy looks like:
 #
 # ASCII:
