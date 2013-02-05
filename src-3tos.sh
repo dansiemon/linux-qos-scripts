@@ -3,6 +3,8 @@
 # Dan Siemon <dan@coverfire.com>
 # http://www.coverfire.com
 #
+# License: Affero GPLv3
+#
 # This script is designed to be used on router placed before a bottleneck link.
 # Set the rate to be slightly below the bottleneck rate so that the router
 # owns the queue. That is, there is no queueing in the DSL or cable device.

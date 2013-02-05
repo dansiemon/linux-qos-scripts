@@ -2,6 +2,8 @@
 ##
 # Dan Siemon <dan@coverfire.com>
 #
+# License: Affero GPLv3
+#
 # This script creates three traffic classes and directs traffic into
 # each class based on the value of the TOS bits.
 #
