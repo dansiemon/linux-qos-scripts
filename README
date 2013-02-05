@@ -1,7 +1,13 @@
 Linux QoS scripts which I used on my home Internet connection.
 
+The authoritative source is:
+http://git.coverfire.com
+but the repository can also be found at:
+https://github.com/dansiemon/linux-qos-scripts
+
 src-3tos.sh is the recommended script. It creates per host fairness
 with 3 priority classes for each host. See the comment at the top of the
-script for an explanation.
+script for an explanation and links to experimental results.
 
-You'll need to change some of the variables to use them.
+You'll probably want to change some of the configuration items at the
+top of the script.
